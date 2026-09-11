@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import streamlit as st
+from pathlib import Path
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(
@@ -21,7 +22,7 @@ st.divider()
 # ---------------- LOAD DATA ----------------
 @st.cache_data
 def load_data():
-    df = pd.read_json("../notebooks/weather.json")
+    df = pd.read_json(Path(__file__).parent.parent / "data" / "raw" / "weather.json")
 
     df = df[
         ["Date/Time", "Temp_C", "Rel Hum_%", "Wind Speed_km/h"]
