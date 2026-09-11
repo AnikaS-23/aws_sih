@@ -1,0 +1,375 @@
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "id": "3f657b75-7574-421a-a2d9-d27a7c53a641",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Requirement already satisfied: pandas in c:\\anaconda3\\lib\\site-packages (2.3.3)\n",
+      "Requirement already satisfied: numpy in c:\\anaconda3\\lib\\site-packages (2.4.6)\n",
+      "Requirement already satisfied: scikit-learn in c:\\anaconda3\\lib\\site-packages (1.9.0)\n",
+      "Requirement already satisfied: python-dateutil>=2.8.2 in c:\\anaconda3\\lib\\site-packages (from pandas) (2.9.0.post0)\n",
+      "Requirement already satisfied: pytz>=2020.1 in c:\\anaconda3\\lib\\site-packages (from pandas) (2026.2)\n",
+      "Requirement already satisfied: tzdata>=2022.7 in c:\\anaconda3\\lib\\site-packages (from pandas) (2026.2)\n",
+      "Requirement already satisfied: scipy>=1.10.0 in c:\\anaconda3\\lib\\site-packages (from scikit-learn) (1.18.0)\n",
+      "Requirement already satisfied: joblib>=1.4.0 in c:\\anaconda3\\lib\\site-packages (from scikit-learn) (1.5.3)\n",
+      "Requirement already satisfied: narwhals>=2.0.1 in c:\\anaconda3\\lib\\site-packages (from scikit-learn) (2.23.0)\n",
+      "Requirement already satisfied: threadpoolctl>=3.5.0 in c:\\anaconda3\\lib\\site-packages (from scikit-learn) (3.5.0)\n",
+      "Requirement already satisfied: six>=1.5 in c:\\anaconda3\\lib\\site-packages (from python-dateutil>=2.8.2->pandas) (1.17.0)\n"
+     ]
+    }
+   ],
+   "source": [
+    "!pip install pandas numpy scikit-learn"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 2,
+   "id": "15b529ed-aeae-40b1-8666-251f077d160f",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import pandas as pd\n",
+    "import numpy as np\n",
+    "from sklearn.ensemble import IsolationForest\n",
+    "import warnings\n",
+    "warnings.filterwarnings('ignore')"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 3,
+   "id": "0d9f3aee-bc3e-4e89-8d05-3de27cd5a675",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "✓ Data loaded\n",
+      "Shape: (8784, 8)\n"
+     ]
+    }
+   ],
+   "source": [
+    "df = pd.read_json('C:/Users/SAHARIKA S M/Downloads/archive/weather.json')\n",
+    "print(\"✓ Data loaded\")\n",
+    "print(f\"Shape: {df.shape}\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 4,
+   "id": "3505f74d-d73a-4c92-9878-db86ea6ddeaf",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "✓ Data cleaned\n",
+      "Total rows: 8784\n"
+     ]
+    }
+   ],
+   "source": [
+    "df = df[['Date/Time', 'Temp_C', 'Rel Hum_%', 'Wind Speed_km/h']].copy()\n",
+    "df.columns = ['timestamp', 'temperature', 'humidity', 'wind_speed']\n",
+    "df['timestamp'] = pd.to_datetime(df['timestamp'], format='mixed')\n",
+    "df = df.dropna()\n",
+    "\n",
+    "print(\"✓ Data cleaned\")\n",
+    "print(f\"Total rows: {len(df)}\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 5,
+   "id": "da458e0f-8069-40d6-a7cb-10c80c64b7f2",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def detect_frozen_sensor(df, column, window=15, threshold=1e-6):\n",
+    "    rolling_std = df[column].rolling(window=window).std()\n",
+    "    frozen_indices = rolling_std[rolling_std < threshold].index.tolist()\n",
+    "    return frozen_indices"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 6,
+   "id": "938ecc0b-7672-4750-b73c-ff93031dee97",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def detect_spike_fault(df, column, z_score_threshold=3.5):\n",
+    "    mean = df[column].mean()\n",
+    "    std = df[column].std()\n",
+    "    z_scores = np.abs((df[column] - mean) / std)\n",
+    "    spike_indices = df[z_scores > z_score_threshold].index.tolist()\n",
+    "    return spike_indices"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 7,
+   "id": "e0b3c30a-8265-42e8-a853-75b4ed9a564a",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def detect_drift_fault(df, column, window=30, drift_threshold=0.05):\n",
+    "    rolling_mean_recent = df[column].rolling(window=window, min_periods=1).mean()\n",
+    "    rolling_mean_older = rolling_mean_recent.shift(window)\n",
+    "    \n",
+    "    mean_diff = np.abs(rolling_mean_recent - rolling_mean_older)\n",
+    "    relative_drift = mean_diff / (df[column].std() + 1e-6)\n",
+    "    \n",
+    "    drift_indices = df[relative_drift > drift_threshold].index.tolist()\n",
+    "    return drift_indices"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 8,
+   "id": "68495d4f-1617-4164-ba68-7bf175a0ce1c",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def detect_missing_data(df, column):\n",
+    "    missing_indices = df[df[column].isna()].index.tolist()\n",
+    "    return missing_indices"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 9,
+   "id": "309ab77a-052f-49f2-a076-eb33880814c8",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def classify_fault(df, column, index):\n",
+    "    \n",
+    "    fault_info = {\n",
+    "        'index': index,\n",
+    "        'timestamp': df.loc[index, 'timestamp'],\n",
+    "        'value': df.loc[index, column],\n",
+    "        'fault_type': 'Unknown',\n",
+    "        'severity': 'Low'\n",
+    "    }\n",
+    "    \n",
+    "    if pd.isna(df.loc[index, column]):\n",
+    "        fault_info['fault_type'] = 'Missing Data'\n",
+    "        fault_info['severity'] = 'Medium'\n",
+    "        return fault_info\n",
+    "    \n",
+    "    window = min(15, index)\n",
+    "    if window > 0:\n",
+    "        recent_values = df.loc[max(0, index-window):index, column].values\n",
+    "        if len(recent_values) > 1 and np.std(recent_values) < 1e-6:\n",
+    "            fault_info['fault_type'] = 'Frozen Sensor'\n",
+    "            fault_info['severity'] = 'High'\n",
+    "            return fault_info\n",
+    "    \n",
+    "    mean = df[column].mean()\n",
+    "    std = df[column].std()\n",
+    "    z_score = abs((df.loc[index, column] - mean) / (std + 1e-6))\n",
+    "    \n",
+    "    if z_score > 3.5:\n",
+    "        fault_info['fault_type'] = 'Wild Spike'\n",
+    "        fault_info['severity'] = 'High'\n",
+    "        return fault_info\n",
+    "    \n",
+    "    window = min(30, index)\n",
+    "    if window > 5:\n",
+    "        older_values = df.loc[max(0, index-2*window):max(0, index-window), column]\n",
+    "        recent_values = df.loc[max(0, index-window):index, column]\n",
+    "        \n",
+    "        if len(older_values) > 0 and len(recent_values) > 0:\n",
+    "            older_mean = older_values.mean()\n",
+    "            recent_mean = recent_values.mean()\n",
+    "            drift_amount = abs(recent_mean - older_mean)\n",
+    "            \n",
+    "            if drift_amount > 0.1 * std:\n",
+    "                fault_info['fault_type'] = 'Sensor Drift'\n",
+    "                fault_info['severity'] = 'Medium'\n",
+    "                return fault_info\n",
+    "    \n",
+    "    fault_info['fault_type'] = 'No Fault'\n",
+    "    fault_info['severity'] = 'Low'\n",
+    "    return fault_info"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 10,
+   "id": "b3942d9c-49b0-4df9-8f93-8cdd26a7723a",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def classify_all_faults(df, columns=['temperature', 'humidity', 'wind_speed']):\n",
+    "    faults_detected = []\n",
+    "    \n",
+    "    for column in columns:\n",
+    "        frozen_indices = detect_frozen_sensor(df, column)\n",
+    "        spike_indices = detect_spike_fault(df, column)\n",
+    "        drift_indices = detect_drift_fault(df, column)\n",
+    "        missing_indices = detect_missing_data(df, column)\n",
+    "        \n",
+    "        all_suspect_indices = set(frozen_indices + spike_indices + drift_indices + missing_indices)\n",
+    "        \n",
+    "        for idx in all_suspect_indices:\n",
+    "            fault_classification = classify_fault(df, column, idx)\n",
+    "            fault_classification['sensor'] = column\n",
+    "            faults_detected.append(fault_classification)\n",
+    "    \n",
+    "    faults_df = pd.DataFrame(faults_detected)\n",
+    "    \n",
+    "    if len(faults_df) > 0:\n",
+    "        severity_order = {'Critical': 4, 'High': 3, 'Medium': 2, 'Low': 1}\n",
+    "        faults_df['severity_rank'] = faults_df['severity'].map(severity_order)\n",
+    "        faults_df = faults_df.sort_values(['severity_rank', 'timestamp'], ascending=[False, True])\n",
+    "        faults_df = faults_df.drop('severity_rank', axis=1)\n",
+    "    \n",
+    "    return faults_df"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 11,
+   "id": "48e07c81-eb3b-46d4-a56e-4ee5ec87832e",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def generate_alerts_summary(faults_df):\n",
+    "    \n",
+    "    if len(faults_df) == 0:\n",
+    "        return {\n",
+    "            'total_faults': 0,\n",
+    "            'critical_count': 0,\n",
+    "            'high_count': 0,\n",
+    "            'medium_count': 0\n",
+    "        }\n",
+    "    \n",
+    "    summary = {\n",
+    "        'total_faults': len(faults_df),\n",
+    "        'critical_count': len(faults_df[faults_df['severity'] == 'Critical']),\n",
+    "        'high_count': len(faults_df[faults_df['severity'] == 'High']),\n",
+    "        'medium_count': len(faults_df[faults_df['severity'] == 'Medium']),\n",
+    "    }\n",
+    "    \n",
+    "    return summary"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 12,
+   "id": "399000e3-b5ab-4fe4-b137-3b254157b0bc",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "================================================================================\n",
+      "FAULT DETECTION RESULTS\n",
+      "================================================================================\n",
+      "\n",
+      "📊 SUMMARY:\n",
+      "   Total Faults Detected: 23924\n",
+      "   🔴 Critical: 0\n",
+      "   🟠 High: 44\n",
+      "   🟡 Medium: 21793\n",
+      "\n",
+      "🔝 TOP 20 FAULTS:\n",
+      "          timestamp     sensor fault_type severity\n",
+      "2012-01-02 12:00:00 wind_speed Wild Spike     High\n",
+      "2012-01-18 01:00:00 wind_speed Wild Spike     High\n",
+      "2012-01-18 02:00:00 wind_speed Wild Spike     High\n",
+      "2012-01-18 03:00:00 wind_speed Wild Spike     High\n",
+      "2012-01-18 04:00:00 wind_speed Wild Spike     High\n",
+      "2012-01-18 05:00:00 wind_speed Wild Spike     High\n",
+      "2012-01-28 23:00:00 wind_speed Wild Spike     High\n",
+      "2012-01-29 00:00:00 wind_speed Wild Spike     High\n",
+      "2012-01-29 01:00:00 wind_speed Wild Spike     High\n",
+      "2012-01-29 02:00:00 wind_speed Wild Spike     High\n",
+      "2012-03-03 13:00:00 wind_speed Wild Spike     High\n",
+      "2012-03-03 14:00:00 wind_speed Wild Spike     High\n",
+      "2012-03-03 15:00:00 wind_speed Wild Spike     High\n",
+      "2012-03-03 16:00:00 wind_speed Wild Spike     High\n",
+      "2012-03-03 17:00:00 wind_speed Wild Spike     High\n",
+      "2012-03-03 18:00:00 wind_speed Wild Spike     High\n",
+      "2012-03-03 20:00:00 wind_speed Wild Spike     High\n",
+      "2012-03-03 21:00:00 wind_speed Wild Spike     High\n",
+      "2012-03-03 22:00:00 wind_speed Wild Spike     High\n",
+      "2012-03-08 18:00:00 wind_speed Wild Spike     High\n",
+      "\n",
+      "================================================================================\n",
+      "✅ FAULT CLASSIFICATION COMPLETE!\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Run classification\n",
+    "faults_df = classify_all_faults(df)\n",
+    "\n",
+    "# Generate summary\n",
+    "alerts = generate_alerts_summary(faults_df)\n",
+    "\n",
+    "# Display results\n",
+    "print(\"=\" * 80)\n",
+    "print(\"FAULT DETECTION RESULTS\")\n",
+    "print(\"=\" * 80)\n",
+    "\n",
+    "print(f\"\\n📊 SUMMARY:\")\n",
+    "print(f\"   Total Faults Detected: {alerts['total_faults']}\")\n",
+    "print(f\"   🔴 Critical: {alerts['critical_count']}\")\n",
+    "print(f\"   🟠 High: {alerts['high_count']}\")\n",
+    "print(f\"   🟡 Medium: {alerts['medium_count']}\")\n",
+    "\n",
+    "if len(faults_df) > 0:\n",
+    "    print(f\"\\n🔝 TOP 20 FAULTS:\")\n",
+    "    print(faults_df[['timestamp', 'sensor', 'fault_type', 'severity']].head(20).to_string(index=False))\n",
+    "else:\n",
+    "    print(\"\\n✅ No faults detected!\")\n",
+    "\n",
+    "print(\"\\n\" + \"=\" * 80)\n",
+    "print(\"✅ FAULT CLASSIFICATION COMPLETE!\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "3fe9f445-edb0-435b-9fca-d4affe483355",
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3 (ipykernel)",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.13.9"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
